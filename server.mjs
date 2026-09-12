@@ -6,7 +6,7 @@ import cors from "cors";
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import {
   saveScan, getScan, listScans, getRules, addRule, addRules, updateRule, deleteRule,
   appendAudit, getAudit, createSession, getSession, markSessionUsed, updateSession,
@@ -710,14 +710,14 @@ app.get('/api/scans', apiLimiter, requireAuth, requireActiveKey, async (req, res
 
 app.get('/api/stats/global', async (req, res) => {
   try {
-    const files = await fs.readdir(SCANS_DIR);
+    const files = await readdir(SCANS_DIR);
     let total = 0, banned = 0, clean = 0, warned = 0, pending = 0;
     
     for (const f of files) {
       if (!f.endsWith('.json')) continue;
       total++;
       try {
-        const data = JSON.parse(await fs.readFile(path.join(SCANS_DIR, f), 'utf-8'));
+        const data = JSON.parse(await readFile(path.join(SCANS_DIR, f), 'utf-8'));
         const v = data.staffDecision ? data.staffDecision.decision : data.verdict;
         if (v === 'banned' || v === 'cheating') banned++;
         else if (v === 'cleared' || v === 'clean') clean++;
@@ -741,13 +741,13 @@ app.get('/api/lookup', apiLimiter, requireAuth, requireActiveKey, async (req, re
   const query = String(q).trim().toLowerCase();
 
   try {
-    const files = await fs.readdir(SCANS_DIR);
+    const files = await readdir(SCANS_DIR);
     const results = [];
 
     for (const f of files) {
       if (!f.endsWith('.json')) continue;
       try {
-        const data = JSON.parse(await fs.readFile(path.join(SCANS_DIR, f), 'utf-8'));
+        const data = JSON.parse(await readFile(path.join(SCANS_DIR, f), 'utf-8'));
         const machineId = (data.machineId || '').toLowerCase();
         const discordId = (data.creatorDiscordId || '').toLowerCase();
         const submittedBy = (data.submittedBy || '').toLowerCase();
@@ -955,21 +955,15 @@ app.post('/api/maintenance', requireAuth, requireOwner, async (req, res) => {
 });
 
 // ---- Video Upload --------------------------------------------------------
-// C# client sends raw mp4 binary data via POST /api/scan/:pin/video
-// We store it under data/videos/<pin>.mp4
-// The dashboard hits GET /api/video/:pin to retrieve the mp4 file.
-
 const VIDEOS_DIR = path.join(__dirname, 'data', 'videos');
 mkdir(VIDEOS_DIR, { recursive: true }).catch(() => {});
 
 app.post('/api/scan/:pin/video', requireClientSecret, express.raw({ type: '*/*', limit: '500mb' }), async (req, res) => {
   const { pin } = req.params;
-  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0)
     return res.status(400).json({ error: 'Video buffer required' });
-  }
   try {
-    const file = path.join(VIDEOS_DIR, `${pin}.mp4`);
-    await writeFile(file, req.body);
+    await writeFile(path.join(VIDEOS_DIR, `${pin}.mp4`), req.body);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -979,13 +973,13 @@ app.post('/api/scan/:pin/video', requireClientSecret, express.raw({ type: '*/*',
 app.get('/api/video/:pin', requireAuth, requireActiveKey, async (req, res) => {
   try {
     const scan = await getScan(req.params.pin);
-    if (scan && scan.creatorDiscordId && scan.creatorDiscordId !== req.user.discordId) {
+    if (scan && scan.creatorDiscordId && scan.creatorDiscordId !== req.user.discordId)
       return res.status(403).json({ error: 'forbidden' });
-    }
     const file = path.join(VIDEOS_DIR, `${req.params.pin}.mp4`);
+    res.setHeader('Content-Type', 'video/mp4');
     res.sendFile(file);
   } catch {
-    res.status(404).json({ error: 'no video for this pin' });
+    res.status(404).json({ error: 'no video' });
   }
 });
 
